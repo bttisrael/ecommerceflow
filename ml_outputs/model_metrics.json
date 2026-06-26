@@ -1,0 +1,345 @@
+{
+  "target": "delay_risk_label",
+  "best_model": "LogisticRegression",
+  "best_threshold": 0.18976844618958397,
+  "features": [
+    "order_value",
+    "order_weight_kg",
+    "product_fragility_score",
+    "distance_km",
+    "carrier_base_delay_rate",
+    "promised_delivery_days",
+    "estimated_delivery_days",
+    "estimated_minus_promised_days",
+    "estimated_over_promised",
+    "log_order_value",
+    "log_distance_km",
+    "log_weight_kg",
+    "value_per_kg",
+    "value_per_km",
+    "weight_distance_interaction",
+    "order_day_of_week",
+    "order_hour",
+    "is_weekend",
+    "is_peak_hour",
+    "hour_sin",
+    "hour_cos",
+    "dow_sin",
+    "dow_cos",
+    "same_state_dc",
+    "order_day",
+    "traffic_risk_score",
+    "weather_risk_score",
+    "route_risk_score",
+    "combined_operational_risk",
+    "city",
+    "state",
+    "region",
+    "product_category",
+    "carrier",
+    "dc_id",
+    "dc_state",
+    "traffic_condition",
+    "weather_condition",
+    "route_type",
+    "distance_band",
+    "weight_band"
+  ],
+  "numeric_features": [
+    "order_value",
+    "order_weight_kg",
+    "product_fragility_score",
+    "distance_km",
+    "carrier_base_delay_rate",
+    "promised_delivery_days",
+    "estimated_delivery_days",
+    "estimated_minus_promised_days",
+    "estimated_over_promised",
+    "log_order_value",
+    "log_distance_km",
+    "log_weight_kg",
+    "value_per_kg",
+    "value_per_km",
+    "weight_distance_interaction",
+    "order_day_of_week",
+    "order_hour",
+    "is_weekend",
+    "is_peak_hour",
+    "hour_sin",
+    "hour_cos",
+    "dow_sin",
+    "dow_cos",
+    "same_state_dc",
+    "order_day",
+    "traffic_risk_score",
+    "weather_risk_score",
+    "route_risk_score",
+    "combined_operational_risk"
+  ],
+  "categorical_features": [
+    "city",
+    "state",
+    "region",
+    "product_category",
+    "carrier",
+    "dc_id",
+    "dc_state",
+    "traffic_condition",
+    "weather_condition",
+    "route_type",
+    "distance_band",
+    "weight_band"
+  ],
+  "results": [
+    {
+      "name": "LogisticRegression",
+      "roc_auc": 0.7333626675873813,
+      "average_precision": 0.550170071088397,
+      "accuracy": 0.28545,
+      "precision": 0.2760054775067201,
+      "recall": 0.9970685232685965,
+      "f1": 0.4323336643495531,
+      "threshold": 0.18976844618958397,
+      "selection_score": 0.7336029120479715,
+      "tn": 267,
+      "fp": 14275,
+      "fn": 16,
+      "tp": 5442,
+      "business_score_per_order": 10.96575
+    },
+    {
+      "name": "RandomForest",
+      "roc_auc": 0.7269257080198174,
+      "average_precision": 0.5407433965542572,
+      "accuracy": 0.2748,
+      "precision": 0.27341949704438434,
+      "recall": 1.0,
+      "f1": 0.42942564909520065,
+      "threshold": 0.16305771314592413,
+      "selection_score": 0.7308930308724635,
+      "tn": 38,
+      "fp": 14504,
+      "fn": 0,
+      "tp": 5458,
+      "business_score_per_order": 10.954
+    },
+    {
+      "name": "ExtraTrees",
+      "roc_auc": 0.7263259491883078,
+      "average_precision": 0.5398706454124025,
+      "accuracy": 0.274,
+      "precision": 0.27317781337605124,
+      "recall": 0.9998167827042873,
+      "f1": 0.4291106393017221,
+      "threshold": 0.15668952348251697,
+      "selection_score": 0.7304590014676801,
+      "tn": 23,
+      "fp": 14519,
+      "fn": 1,
+      "tp": 5457,
+      "business_score_per_order": 10.93275
+    },
+    {
+      "name": "HistGradientBoosting",
+      "roc_auc": 0.7300303353010063,
+      "average_precision": 0.5444917665269791,
+      "accuracy": 0.2731,
+      "precision": 0.27295459091818364,
+      "recall": 1.0,
+      "f1": 0.4288520468295749,
+      "threshold": 0.06529174895335724,
+      "selection_score": 0.7323491257683749,
+      "tn": 4,
+      "fp": 14538,
+      "fn": 0,
+      "tp": 5458,
+      "business_score_per_order": 10.9285
+    },
+    {
+      "name": "XGBoost",
+      "roc_auc": 0.7265226728064662,
+      "average_precision": 0.5374328823837096,
+      "accuracy": 0.28505,
+      "precision": 0.2759389730853059,
+      "recall": 0.997434957860022,
+      "f1": 0.4322864970024219,
+      "threshold": 0.06970701366662979,
+      "selection_score": 0.729482073785163,
+      "tn": 257,
+      "fp": 14285,
+      "fn": 14,
+      "tp": 5444,
+      "business_score_per_order": 10.97825
+    },
+    {
+      "name": "LightGBM",
+      "roc_auc": 0.7270599333987112,
+      "average_precision": 0.5417572362945893,
+      "accuracy": 0.2732,
+      "precision": 0.2729818945683705,
+      "recall": 1.0,
+      "f1": 0.4288857457174289,
+      "threshold": 0.08860546485724623,
+      "selection_score": 0.7310637147938513,
+      "tn": 6,
+      "fp": 14536,
+      "fn": 0,
+      "tp": 5458,
+      "business_score_per_order": 10.93
+    }
+  ],
+  "feature_importance": [
+    {
+      "feature": "combined_operational_risk",
+      "importance_mean": 0.21093824079354856,
+      "importance_std": 0.005283823943649925
+    },
+    {
+      "feature": "distance_km",
+      "importance_mean": 0.19763525794776676,
+      "importance_std": 0.0020670678177056407
+    },
+    {
+      "feature": "route_risk_score",
+      "importance_mean": 0.03726812346765156,
+      "importance_std": 0.001620317137442197
+    },
+    {
+      "feature": "traffic_risk_score",
+      "importance_mean": 0.019138228487668173,
+      "importance_std": 0.0011637697767547558
+    },
+    {
+      "feature": "weather_risk_score",
+      "importance_mean": 0.018068598628573594,
+      "importance_std": 0.0024802457168421237
+    },
+    {
+      "feature": "carrier_base_delay_rate",
+      "importance_mean": 0.01567937589871793,
+      "importance_std": 0.001922713023633125
+    },
+    {
+      "feature": "product_fragility_score",
+      "importance_mean": 0.008842040744253477,
+      "importance_std": 0.001246820067376371
+    },
+    {
+      "feature": "traffic_condition",
+      "importance_mean": 0.006792668791512324,
+      "importance_std": 0.00021312421817357637
+    },
+    {
+      "feature": "weather_condition",
+      "importance_mean": 0.0061524726223500135,
+      "importance_std": 0.0008469492045884018
+    },
+    {
+      "feature": "carrier",
+      "importance_mean": 0.0049466457044134325,
+      "importance_std": 0.0014798358447827167
+    },
+    {
+      "feature": "is_weekend",
+      "importance_mean": 0.004312752506265704,
+      "importance_std": 0.0006124191344141583
+    },
+    {
+      "feature": "order_weight_kg",
+      "importance_mean": 0.0040327579365421196,
+      "importance_std": 0.0007585637282434004
+    },
+    {
+      "feature": "log_order_value",
+      "importance_mean": 0.003919343030787337,
+      "importance_std": 0.0006929778172174509
+    },
+    {
+      "feature": "is_peak_hour",
+      "importance_mean": 0.0027588652876973986,
+      "importance_std": 0.0007215558707042471
+    },
+    {
+      "feature": "distance_band",
+      "importance_mean": 0.002042151152544558,
+      "importance_std": 0.00041177396551073873
+    },
+    {
+      "feature": "log_distance_km",
+      "importance_mean": 0.0020056194359731718,
+      "importance_std": 0.0002771331324823827
+    },
+    {
+      "feature": "same_state_dc",
+      "importance_mean": 0.0012293039893585655,
+      "importance_std": 0.0003203542698539167
+    },
+    {
+      "feature": "route_type",
+      "importance_mean": 0.0008953222462119159,
+      "importance_std": 0.00040641168232727316
+    },
+    {
+      "feature": "log_weight_kg",
+      "importance_mean": 0.0005124847315408632,
+      "importance_std": 0.0002840443429427462
+    },
+    {
+      "feature": "order_value",
+      "importance_mean": 0.0004432197851009345,
+      "importance_std": 0.0005129338830147549
+    },
+    {
+      "feature": "weight_band",
+      "importance_mean": 0.0002767365574538161,
+      "importance_std": 0.00028906021998750873
+    },
+    {
+      "feature": "value_per_kg",
+      "importance_mean": 0.0002669985781102779,
+      "importance_std": 0.0001013328267504566
+    },
+    {
+      "feature": "region",
+      "importance_mean": 0.0001841522476868196,
+      "importance_std": 6.893506455227352e-05
+    },
+    {
+      "feature": "estimated_minus_promised_days",
+      "importance_mean": 0.00017232881411766154,
+      "importance_std": 0.00021581276165500156
+    },
+    {
+      "feature": "promised_delivery_days",
+      "importance_mean": 0.0001322743324636777,
+      "importance_std": 0.0001558999965432451
+    },
+    {
+      "feature": "hour_cos",
+      "importance_mean": 0.000107723651586622,
+      "importance_std": 0.00012008431801853788
+    },
+    {
+      "feature": "value_per_km",
+      "importance_mean": 7.993047157637268e-05,
+      "importance_std": 6.950705518345156e-05
+    },
+    {
+      "feature": "estimated_over_promised",
+      "importance_mean": 6.887791651160047e-05,
+      "importance_std": 3.0966440397412556e-05
+    },
+    {
+      "feature": "weight_distance_interaction",
+      "importance_mean": 4.14059031649483e-05,
+      "importance_std": 2.4951475899015862e-05
+    },
+    {
+      "feature": "estimated_delivery_days",
+      "importance_mean": 3.965566277197574e-05,
+      "importance_std": 5.129078209770487e-05
+    }
+  ],
+  "train_rows": 80000,
+  "test_rows": 20000
+}

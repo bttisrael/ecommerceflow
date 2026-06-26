@@ -1,0 +1,14 @@
+﻿FROM python:3.12-slim
+
+WORKDIR /app
+
+COPY requirements_score.txt .
+
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements_score.txt
+
+COPY score_recent_orders_vertex.py .
+
+ENV PYTHONUNBUFFERED=1
+
+CMD ["python", "score_recent_orders_vertex.py"]

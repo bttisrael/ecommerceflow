@@ -1,0 +1,122 @@
+[
+  {
+    "id": "H1",
+    "hypothesis": "Severe traffic increases delay risk.",
+    "feature": "traffic_condition",
+    "condition": "severe",
+    "segment_count": 10285,
+    "segment_rate": 0.42469615945551775,
+    "overall_rate": 0.27289,
+    "lift": 1.5562906645737027,
+    "verdict": "TRUE",
+    "business_insight": "Orders matching traffic_condition=severe have 1.56x the average delay rate."
+  },
+  {
+    "id": "H2",
+    "hypothesis": "Storm weather increases delay risk.",
+    "feature": "weather_condition",
+    "condition": "storm",
+    "segment_count": 5944,
+    "segment_rate": 0.48098923283983847,
+    "overall_rate": 0.27289,
+    "lift": 1.7625755170209185,
+    "verdict": "TRUE",
+    "business_insight": "Orders matching weather_condition=storm have 1.76x the average delay rate."
+  },
+  {
+    "id": "H3",
+    "hypothesis": "Remote routes increase delay risk.",
+    "feature": "route_type",
+    "condition": "remote",
+    "segment_count": 7952,
+    "segment_rate": 0.38594064386317906,
+    "overall_rate": 0.27289,
+    "lift": 1.4142718452972958,
+    "verdict": "TRUE",
+    "business_insight": "Orders matching route_type=remote have 1.41x the average delay rate."
+  },
+  {
+    "id": "H4",
+    "hypothesis": "NationalPost has higher delay risk than average.",
+    "feature": "carrier",
+    "condition": "NationalPost",
+    "segment_count": 15646,
+    "segment_rate": 0.30295283139460566,
+    "overall_rate": 0.27289,
+    "lift": 1.110164650205598,
+    "verdict": "FALSE",
+    "business_insight": "Orders matching carrier=NationalPost have 1.11x the average delay rate."
+  },
+  {
+    "id": "H5",
+    "hypothesis": "Very long distance orders have higher delay risk.",
+    "feature": "distance_band",
+    "condition": "very_long",
+    "segment_count": 6836,
+    "segment_rate": 0.6593036863662961,
+    "overall_rate": 0.27289,
+    "lift": 2.4160053001806445,
+    "verdict": "TRUE",
+    "business_insight": "Orders matching distance_band=very_long have 2.42x the average delay rate."
+  },
+  {
+    "id": "H6",
+    "hypothesis": "Weekend orders have higher delay risk.",
+    "feature": "is_weekend",
+    "condition": 1,
+    "segment_count": 20404,
+    "segment_rate": 0.3180258772789649,
+    "overall_rate": 0.27289,
+    "lift": 1.1653995283043164,
+    "verdict": "TRUE",
+    "business_insight": "Orders matching is_weekend=1 have 1.17x the average delay rate."
+  },
+  {
+    "id": "H7",
+    "hypothesis": "Peak-hour orders have higher delay risk.",
+    "feature": "is_peak_hour",
+    "condition": 1,
+    "segment_count": 60458,
+    "segment_rate": 0.29379073075523504,
+    "overall_rate": 0.27289,
+    "lift": 1.0765903138819122,
+    "verdict": "FALSE",
+    "business_insight": "Orders matching is_peak_hour=1 have 1.08x the average delay rate."
+  },
+  {
+    "id": "H8",
+    "hypothesis": "Orders estimated above promised SLA have higher delay risk.",
+    "feature": "estimated_minus_promised_days",
+    "condition": "positive",
+    "segment_count": 7976,
+    "segment_rate": 0.46213640922768306,
+    "overall_rate": 0.27289,
+    "lift": 1.693489718302917,
+    "verdict": "TRUE",
+    "business_insight": "Orders matching estimated_minus_promised_days=positive have 1.69x the average delay rate."
+  },
+  {
+    "id": "H9",
+    "hypothesis": "Very heavy orders have higher delay risk.",
+    "feature": "weight_band",
+    "condition": "very_heavy",
+    "segment_count": 7266,
+    "segment_rate": 0.4437104321497385,
+    "overall_rate": 0.27289,
+    "lift": 1.6259680902551887,
+    "verdict": "TRUE",
+    "business_insight": "Orders matching weight_band=very_heavy have 1.63x the average delay rate."
+  },
+  {
+    "id": "H10",
+    "hypothesis": "Different states have materially different delay rates.",
+    "feature": "state",
+    "condition": "AM",
+    "segment_count": 3150,
+    "segment_rate": 0.6304761904761905,
+    "overall_rate": 0.27289,
+    "lift": 2.310367512463595,
+    "verdict": "TRUE",
+    "business_insight": "Orders matching state=AM have 2.31x the average delay rate."
+  }
+]

@@ -1,0 +1,5 @@
+﻿steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-f', 'Dockerfile.vertex', '-t', 'us-central1-docker.pkg.dev/otimizador-cargas/cloud-run-source-deploy/commerceflow-vertex-predictor:v2', '.']
+images:
+- 'us-central1-docker.pkg.dev/otimizador-cargas/cloud-run-source-deploy/commerceflow-vertex-predictor:v2'

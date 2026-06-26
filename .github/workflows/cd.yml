@@ -1,0 +1,158 @@
+name: CD
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      deploy_frontend:
+        description: Deploy frontend to Vercel
+        required: true
+        default: true
+        type: boolean
+      deploy_backend:
+        description: Deploy FastAPI backend to Cloud Run
+        required: true
+        default: true
+        type: boolean
+      deploy_scoring:
+        description: Deploy daily scoring Cloud Run Job
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+env:
+  GCP_PROJECT_ID: otimizador-cargas
+  GCP_REGION: us-central1
+  GAR_REPOSITORY: cloud-run-source-deploy
+  RUNTIME_SERVICE_ACCOUNT: commerceflow-runner@otimizador-cargas.iam.gserviceaccount.com
+  BACKEND_SERVICE: ecommerceflow-api
+  BACKEND_IMAGE: us-central1-docker.pkg.dev/otimizador-cargas/cloud-run-source-deploy/ecommerceflow-api
+  SCORING_JOB: ecommerceflow-vertex-scoring
+  SCORING_IMAGE: us-central1-docker.pkg.dev/otimizador-cargas/cloud-run-source-deploy/ecommerceflow-vertex-scoring
+
+jobs:
+  deploy-frontend:
+    name: Deploy frontend
+    runs-on: ubuntu-latest
+    environment: production
+    if: github.event_name == 'push' || github.event.inputs.deploy_frontend == 'true'
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and deploy to Vercel
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          npx vercel@latest pull --yes --environment=production --token="$VERCEL_TOKEN"
+          npx vercel@latest build --prod --token="$VERCEL_TOKEN"
+          npx vercel@latest deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+
+  deploy-backend:
+    name: Deploy backend
+    runs-on: ubuntu-latest
+    environment: production
+    if: github.event_name == 'push' || github.event.inputs.deploy_backend == 'true'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build backend image in Cloud Build
+        run: |
+          gcloud builds submit \
+            --project="$GCP_PROJECT_ID" \
+            --tag="$BACKEND_IMAGE:${GITHUB_SHA}" \
+            .
+
+      - name: Deploy backend to Cloud Run
+        run: |
+          gcloud run deploy "$BACKEND_SERVICE" \
+            --project="$GCP_PROJECT_ID" \
+            --region="$GCP_REGION" \
+            --platform=managed \
+            --image="$BACKEND_IMAGE:${GITHUB_SHA}" \
+            --allow-unauthenticated \
+            --service-account="$RUNTIME_SERVICE_ACCOUNT" \
+            --memory=512Mi \
+            --cpu=1 \
+            --min-instances=1 \
+            --max-instances=10 \
+            --concurrency=80 \
+            --timeout=300 \
+            --set-env-vars="BIGQUERY_ORDERS_TABLE=otimizador-cargas.commerce_raw.orders,PREDICTIONS_TABLE=otimizador-cargas.commerce_gold.delay_risk_predictions,BIGQUERY_INGESTION_ENABLED=true,BIGQUERY_INSERT_CHUNK_SIZE=3000,ORDERS_PER_BATCH=3000,SIMULATION_MINUTES=240,MAX_ORDERS_PER_BATCH=3000,AUTO_START_SIMULATION=false,GENERATE_INITIAL_BATCH=false,BIGQUERY_PREDICTIONS_ENABLED=true,PREDICTIONS_CACHE_SECONDS=900,BIGQUERY_MAX_BYTES_BILLED=50000000"
+
+  deploy-scoring:
+    name: Deploy daily scoring job
+    runs-on: ubuntu-latest
+    environment: production
+    if: github.event_name == 'push' || github.event.inputs.deploy_scoring == 'true'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build scoring image in Cloud Build
+        run: |
+          gcloud builds submit \
+            --project="$GCP_PROJECT_ID" \
+            --config=cloudbuild-score.yaml \
+            .
+
+      - name: Update Cloud Run scoring job
+        run: |
+          gcloud run jobs update "$SCORING_JOB" \
+            --project="$GCP_PROJECT_ID" \
+            --region="$GCP_REGION" \
+            --image="$SCORING_IMAGE:latest" \
+            --service-account="$RUNTIME_SERVICE_ACCOUNT" \
+            --tasks=1 \
+            --max-retries=0 \
+            --task-timeout=3600s \
+            --cpu=1 \
+            --memory=1Gi \
+            --set-env-vars="PROJECT_ID=otimizador-cargas,REGION=us-central1,SCORING_MODE=local,SCORING_ENABLED=true,ALLOW_VERTEX_ENDPOINT=false,REFRESH_FEATURES_BEFORE_SCORING=true,RAW_ORDERS_TABLE=otimizador-cargas.commerce_raw.orders,SILVER_ORDERS_TABLE=otimizador-cargas.commerce_silver.orders_cleaned,FEATURE_TABLE=otimizador-cargas.commerce_gold.delay_risk_features,PREDICTIONS_TABLE=otimizador-cargas.commerce_gold.delay_risk_predictions,FEATURE_COLUMNS_GCS=gs://commerceflow-ml-artifacts-otimizador-cargas/commerceflow/vertex_custom_model/v1/feature_columns.json,MODEL_GCS_URI=gs://commerceflow-ml-artifacts-otimizador-cargas/commerceflow/vertex_custom_model/v1,MODEL_VERSION=commerceflow-delay-risk-vertex-registry-daily-v1,BATCH_SIZE=300,DAILY_SCORING_LIMIT=300,SCORING_LOOKBACK_DAYS=7,BIGQUERY_MAX_BYTES_BILLED=50000000,FEATURE_REFRESH_MAX_BYTES_BILLED=2000000000,PREDICTIONS_INSERT_CHUNK_SIZE=300"

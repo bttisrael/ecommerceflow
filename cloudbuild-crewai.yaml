@@ -1,0 +1,5 @@
+﻿steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-f', 'Dockerfile.crewai', '-t', 'us-central1-docker.pkg.dev/otimizador-cargas/cloud-run-source-deploy/ecommerceflow-crewai-training:latest', '.']
+images:
+- 'us-central1-docker.pkg.dev/otimizador-cargas/cloud-run-source-deploy/ecommerceflow-crewai-training:latest'

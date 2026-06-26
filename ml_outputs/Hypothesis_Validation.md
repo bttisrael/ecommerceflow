@@ -1,0 +1,15 @@
+# Business Hypothesis Validation
+
+Overall delay rate: **27.29%**
+
+ id                                                  hypothesis                       feature    condition  segment_count  segment_rate  overall_rate     lift verdict                                                                          business_insight
+ H1                        Severe traffic increases delay risk.             traffic_condition       severe          10285      0.424696       0.27289 1.556291    TRUE               Orders matching traffic_condition=severe have 1.56x the average delay rate.
+ H2                         Storm weather increases delay risk.             weather_condition        storm           5944      0.480989       0.27289 1.762576    TRUE                Orders matching weather_condition=storm have 1.76x the average delay rate.
+ H3                          Remote routes increase delay risk.                    route_type       remote           7952      0.385941       0.27289 1.414272    TRUE                      Orders matching route_type=remote have 1.41x the average delay rate.
+ H4            NationalPost has higher delay risk than average.                       carrier NationalPost          15646      0.302953       0.27289 1.110165   FALSE                   Orders matching carrier=NationalPost have 1.11x the average delay rate.
+ H5           Very long distance orders have higher delay risk.                 distance_band    very_long           6836      0.659304       0.27289 2.416005    TRUE                Orders matching distance_band=very_long have 2.42x the average delay rate.
+ H6                      Weekend orders have higher delay risk.                    is_weekend            1          20404      0.318026       0.27289 1.165400    TRUE                           Orders matching is_weekend=1 have 1.17x the average delay rate.
+ H7                    Peak-hour orders have higher delay risk.                  is_peak_hour            1          60458      0.293791       0.27289 1.076590   FALSE                         Orders matching is_peak_hour=1 have 1.08x the average delay rate.
+ H8 Orders estimated above promised SLA have higher delay risk. estimated_minus_promised_days     positive           7976      0.462136       0.27289 1.693490    TRUE Orders matching estimated_minus_promised_days=positive have 1.69x the average delay rate.
+ H9                   Very heavy orders have higher delay risk.                   weight_band   very_heavy           7266      0.443710       0.27289 1.625968    TRUE                 Orders matching weight_band=very_heavy have 1.63x the average delay rate.
+H10     Different states have materially different delay rates.                         state           AM           3150      0.630476       0.27289 2.310368    TRUE                               Orders matching state=AM have 2.31x the average delay rate.

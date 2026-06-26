@@ -1,0 +1,46 @@
+[
+  {
+    "step": "ingestion",
+    "result": "INGESTION_SUCCESS\nSource: BigQuery\nBigQuery table: otimizador-cargas.commerce_gold.delay_risk_features\nSource rows: 2,012,400\nIngested rows: 100,000\nColumns: 42\nFile: ml_outputs/df1_silver_orders.parquet"
+  },
+  {
+    "step": "analysis",
+    "result": "ANALYSIS_SUCCESS\nRows: 100,000\nDelay rate: 27.29%\nLeakage columns: []\nFile: ml_outputs/Data_Quality_Report.md"
+  },
+  {
+    "step": "features",
+    "result": "FEATURES_SUCCESS\nRows: 100,000\nColumns: 49\nFile: ml_outputs/df2_features.parquet"
+  },
+  {
+    "step": "eda",
+    "result": "EDA_SUCCESS\nML-ready rows: 100,000\nML-ready columns: 42\nDropped leakage/text/date cols: ['order_id', 'order_date', 'order_timestamp']\nDropped high-cardinality cols: []\nFile: ml_outputs/df3_ml_ready.parquet"
+  },
+  {
+    "step": "hypothesis",
+    "result": "HYPOTHESIS_SUCCESS\nHypotheses tested: 10\nTRUE: 8\nFile: ml_outputs/Hypothesis_Validation.md"
+  },
+  {
+    "step": "ml",
+    "result": "ML_SUCCESS\nBest model: LogisticRegression\nROC AUC: 0.7334\nAverage Precision: 0.5502\nPrecision: 0.2760\nRecall: 0.9971\nF1: 0.4323\nThreshold: 0.190\nModel artifact: ml_outputs/model.pkl\nPredictions: ml_outputs/df4_predictions.parquet"
+  },
+  {
+    "step": "business",
+    "result": "BUSINESS_PERFORMANCE_SUCCESS\nIncremental value: 874,275.00\nValue per 1,000 orders: 43,713.75\nFile: ml_outputs/Business_Performance.md"
+  },
+  {
+    "step": "notebook",
+    "result": "NOTEBOOK_SUCCESS\\nFile: ml_outputs/analysis_notebook.ipynb\\nSource-code manifest: ml_outputs\\project_code_manifest.json\\nSource files embedded: 45"
+  },
+  {
+    "step": "html",
+    "result": "HTML_SUCCESS\nFile: ml_outputs/dashboard.html"
+  },
+  {
+    "step": "gcs_upload",
+    "result": "GCS_UPLOAD_SKIPPED: no --gcs-bucket provided."
+  },
+  {
+    "step": "gitops",
+    "result": "GITOPS_SKIPPED: CONFIG.git_enabled=False"
+  }
+]
