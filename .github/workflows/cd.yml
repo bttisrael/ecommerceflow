@@ -41,11 +41,91 @@ env:
   SCORING_IMAGE: us-central1-docker.pkg.dev/otimizador-cargas/cloud-run-source-deploy/ecommerceflow-vertex-scoring
 
 jobs:
+  preflight:
+    name: Deployment preflight
+    runs-on: ubuntu-latest
+    outputs:
+      deploy_frontend: ${{ steps.check.outputs.deploy_frontend }}
+      deploy_backend: ${{ steps.check.outputs.deploy_backend }}
+      deploy_scoring: ${{ steps.check.outputs.deploy_scoring }}
+      frontend_ready: ${{ steps.check.outputs.frontend_ready }}
+      gcp_ready: ${{ steps.check.outputs.gcp_ready }}
+
+    steps:
+      - name: Check deployment secrets
+        id: check
+        shell: bash
+        env:
+          DEPLOY_FRONTEND: ${{ github.event_name == 'push' || github.event.inputs.deploy_frontend == 'true' }}
+          DEPLOY_BACKEND: ${{ github.event_name == 'push' || github.event.inputs.deploy_backend == 'true' }}
+          DEPLOY_SCORING: ${{ github.event_name == 'push' || github.event.inputs.deploy_scoring == 'true' }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+
+          frontend_missing=()
+          gcp_missing=()
+
+          for name in VERCEL_ORG_ID VERCEL_PROJECT_ID VERCEL_TOKEN; do
+            if [ -z "${!name:-}" ]; then
+              frontend_missing+=("$name")
+            fi
+          done
+
+          for name in GCP_WORKLOAD_IDENTITY_PROVIDER GCP_SERVICE_ACCOUNT; do
+            if [ -z "${!name:-}" ]; then
+              gcp_missing+=("$name")
+            fi
+          done
+
+          frontend_ready=true
+          gcp_ready=true
+          if [ "${#frontend_missing[@]}" -gt 0 ]; then
+            frontend_ready=false
+          fi
+          if [ "${#gcp_missing[@]}" -gt 0 ]; then
+            gcp_ready=false
+          fi
+
+          echo "deploy_frontend=$DEPLOY_FRONTEND" >> "$GITHUB_OUTPUT"
+          echo "deploy_backend=$DEPLOY_BACKEND" >> "$GITHUB_OUTPUT"
+          echo "deploy_scoring=$DEPLOY_SCORING" >> "$GITHUB_OUTPUT"
+          echo "frontend_ready=$frontend_ready" >> "$GITHUB_OUTPUT"
+          echo "gcp_ready=$gcp_ready" >> "$GITHUB_OUTPUT"
+
+          if [ "$DEPLOY_FRONTEND" = "true" ] && [ "$frontend_ready" != "true" ]; then
+            echo "::warning::Skipping frontend deploy. Missing GitHub Secrets: ${frontend_missing[*]}"
+          fi
+          if { [ "$DEPLOY_BACKEND" = "true" ] || [ "$DEPLOY_SCORING" = "true" ]; } && [ "$gcp_ready" != "true" ]; then
+            echo "::warning::Skipping GCP deploys. Missing GitHub Secrets: ${gcp_missing[*]}"
+          fi
+
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            failed=false
+            if [ "$DEPLOY_FRONTEND" = "true" ] && [ "$frontend_ready" != "true" ]; then
+              echo "::error::Cannot deploy frontend until these GitHub Secrets exist: ${frontend_missing[*]}"
+              failed=true
+            fi
+            if { [ "$DEPLOY_BACKEND" = "true" ] || [ "$DEPLOY_SCORING" = "true" ]; } && [ "$gcp_ready" != "true" ]; then
+              echo "::error::Cannot deploy GCP resources until these GitHub Secrets exist: ${gcp_missing[*]}"
+              failed=true
+            fi
+            if [ "$failed" = "true" ]; then
+              exit 1
+            fi
+          fi
+
   deploy-frontend:
     name: Deploy frontend
     runs-on: ubuntu-latest
     environment: production
-    if: github.event_name == 'push' || github.event.inputs.deploy_frontend == 'true'
+    needs:
+      - preflight
+    if: needs.preflight.outputs.deploy_frontend == 'true' && needs.preflight.outputs.frontend_ready == 'true'
     defaults:
       run:
         working-directory: frontend
@@ -78,7 +158,9 @@ jobs:
     name: Deploy backend
     runs-on: ubuntu-latest
     environment: production
-    if: github.event_name == 'push' || github.event.inputs.deploy_backend == 'true'
+    needs:
+      - preflight
+    if: needs.preflight.outputs.deploy_backend == 'true' && needs.preflight.outputs.gcp_ready == 'true'
 
     steps:
       - name: Checkout
@@ -121,7 +203,9 @@ jobs:
     name: Deploy daily scoring job
     runs-on: ubuntu-latest
     environment: production
-    if: github.event_name == 'push' || github.event.inputs.deploy_scoring == 'true'
+    needs:
+      - preflight
+    if: needs.preflight.outputs.deploy_scoring == 'true' && needs.preflight.outputs.gcp_ready == 'true'
 
     steps:
       - name: Checkout
