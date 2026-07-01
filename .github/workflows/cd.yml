@@ -38,6 +38,7 @@ env:
   BACKEND_SERVICE: ecommerceflow-api
   BACKEND_IMAGE: us-central1-docker.pkg.dev/otimizador-cargas/cloud-run-source-deploy/ecommerceflow-api
   SCORING_JOB: ecommerceflow-vertex-scoring
+  SCORING_SCHEDULER_JOB: ecommerceflow-score-orders
   SCORING_IMAGE: us-central1-docker.pkg.dev/otimizador-cargas/cloud-run-source-deploy/ecommerceflow-vertex-scoring
 
 jobs:
@@ -212,7 +213,7 @@ jobs:
             --max-instances=10 \
             --concurrency=80 \
             --timeout=300 \
-            --set-env-vars="BIGQUERY_ORDERS_TABLE=otimizador-cargas.commerce_raw.orders,PREDICTIONS_TABLE=otimizador-cargas.commerce_gold.delay_risk_predictions,BIGQUERY_INGESTION_ENABLED=true,BIGQUERY_INSERT_CHUNK_SIZE=3000,ORDERS_PER_BATCH=3000,SIMULATION_MINUTES=240,MAX_ORDERS_PER_BATCH=3000,AUTO_START_SIMULATION=false,GENERATE_INITIAL_BATCH=false,BIGQUERY_PREDICTIONS_ENABLED=true,PREDICTIONS_CACHE_SECONDS=900,BIGQUERY_MAX_BYTES_BILLED=50000000"
+            --set-env-vars="BIGQUERY_ORDERS_TABLE=otimizador-cargas.commerce_raw.orders,PREDICTIONS_TABLE=otimizador-cargas.commerce_gold.delay_risk_predictions,PREDICTION_PERFORMANCE_TABLE=otimizador-cargas.commerce_gold.delay_risk_prediction_performance,BIGQUERY_INGESTION_ENABLED=true,BIGQUERY_INSERT_CHUNK_SIZE=3000,ORDERS_PER_BATCH=3000,SIMULATION_MINUTES=240,MAX_ORDERS_PER_BATCH=3000,AUTO_START_SIMULATION=false,GENERATE_INITIAL_BATCH=false,BIGQUERY_PREDICTIONS_ENABLED=true,PREDICTIONS_CACHE_SECONDS=900,BIGQUERY_MAX_BYTES_BILLED=50000000"
 
   deploy-scoring:
     name: Deploy daily scoring job
@@ -259,16 +260,73 @@ jobs:
           cache-from: type=gha,scope=scoring-prod
           cache-to: type=gha,mode=max,scope=scoring-prod
 
-      - name: Update Cloud Run scoring job
+      - name: Create or update Cloud Run scoring job
         run: |
-          gcloud run jobs update "$SCORING_JOB" \
+          set -euo pipefail
+
+          SCORING_ENV_VARS="PROJECT_ID=otimizador-cargas,REGION=us-central1,SCORING_MODE=local,SCORING_ENABLED=true,ALLOW_VERTEX_ENDPOINT=false,REFRESH_FEATURES_BEFORE_SCORING=true,RAW_ORDERS_TABLE=otimizador-cargas.commerce_raw.orders,SILVER_ORDERS_TABLE=otimizador-cargas.commerce_silver.orders_cleaned,FEATURE_TABLE=otimizador-cargas.commerce_gold.delay_risk_features,PREDICTIONS_TABLE=otimizador-cargas.commerce_gold.delay_risk_predictions,PREDICTION_PERFORMANCE_TABLE=otimizador-cargas.commerce_gold.delay_risk_prediction_performance,PERFORMANCE_MONITORING_ENABLED=true,FEATURE_COLUMNS_GCS=gs://commerceflow-ml-artifacts-otimizador-cargas/commerceflow/vertex_custom_model/v1/feature_columns.json,MODEL_GCS_URI=gs://commerceflow-ml-artifacts-otimizador-cargas/commerceflow/vertex_custom_model/v1,MODEL_VERSION=commerceflow-delay-risk-vertex-registry-daily-v1,BATCH_SIZE=300,DAILY_SCORING_LIMIT=300,SCORING_LOOKBACK_DAYS=7,BIGQUERY_MAX_BYTES_BILLED=50000000,FEATURE_REFRESH_MAX_BYTES_BILLED=2000000000,PREDICTIONS_INSERT_CHUNK_SIZE=300,ACCURACY_DROP_ALERT_THRESHOLD=0.05,F1_DROP_ALERT_THRESHOLD=0.05"
+
+          if gcloud run jobs describe "$SCORING_JOB" --project="$GCP_PROJECT_ID" --region="$GCP_REGION" >/dev/null 2>&1; then
+            gcloud run jobs update "$SCORING_JOB" \
+              --project="$GCP_PROJECT_ID" \
+              --region="$GCP_REGION" \
+              --image="$SCORING_IMAGE:${GITHUB_SHA}" \
+              --service-account="$RUNTIME_SERVICE_ACCOUNT" \
+              --tasks=1 \
+              --max-retries=0 \
+              --task-timeout=3600s \
+              --cpu=1 \
+              --memory=1Gi \
+              --set-env-vars="$SCORING_ENV_VARS"
+          else
+            gcloud run jobs create "$SCORING_JOB" \
+              --project="$GCP_PROJECT_ID" \
+              --region="$GCP_REGION" \
+              --image="$SCORING_IMAGE:${GITHUB_SHA}" \
+              --service-account="$RUNTIME_SERVICE_ACCOUNT" \
+              --tasks=1 \
+              --max-retries=0 \
+              --task-timeout=3600s \
+              --cpu=1 \
+              --memory=1Gi \
+              --set-env-vars="$SCORING_ENV_VARS"
+          fi
+
+      - name: Create or update daily scoring scheduler
+        run: |
+          set -euo pipefail
+
+          SCHEDULER_URI="https://run.googleapis.com/v2/projects/${GCP_PROJECT_ID}/locations/${GCP_REGION}/jobs/${SCORING_JOB}:run"
+
+          gcloud run jobs add-iam-policy-binding "$SCORING_JOB" \
             --project="$GCP_PROJECT_ID" \
             --region="$GCP_REGION" \
-            --image="$SCORING_IMAGE:${GITHUB_SHA}" \
-            --service-account="$RUNTIME_SERVICE_ACCOUNT" \
-            --tasks=1 \
-            --max-retries=0 \
-            --task-timeout=3600s \
-            --cpu=1 \
-            --memory=1Gi \
-            --set-env-vars="PROJECT_ID=otimizador-cargas,REGION=us-central1,SCORING_MODE=local,SCORING_ENABLED=true,ALLOW_VERTEX_ENDPOINT=false,REFRESH_FEATURES_BEFORE_SCORING=true,RAW_ORDERS_TABLE=otimizador-cargas.commerce_raw.orders,SILVER_ORDERS_TABLE=otimizador-cargas.commerce_silver.orders_cleaned,FEATURE_TABLE=otimizador-cargas.commerce_gold.delay_risk_features,PREDICTIONS_TABLE=otimizador-cargas.commerce_gold.delay_risk_predictions,FEATURE_COLUMNS_GCS=gs://commerceflow-ml-artifacts-otimizador-cargas/commerceflow/vertex_custom_model/v1/feature_columns.json,MODEL_GCS_URI=gs://commerceflow-ml-artifacts-otimizador-cargas/commerceflow/vertex_custom_model/v1,MODEL_VERSION=commerceflow-delay-risk-vertex-registry-daily-v1,BATCH_SIZE=300,DAILY_SCORING_LIMIT=300,SCORING_LOOKBACK_DAYS=7,BIGQUERY_MAX_BYTES_BILLED=50000000,FEATURE_REFRESH_MAX_BYTES_BILLED=2000000000,PREDICTIONS_INSERT_CHUNK_SIZE=300"
+            --member="serviceAccount:$RUNTIME_SERVICE_ACCOUNT" \
+            --role="roles/run.invoker" \
+            --quiet
+
+          if gcloud scheduler jobs describe "$SCORING_SCHEDULER_JOB" --project="$GCP_PROJECT_ID" --location="$GCP_REGION" >/dev/null 2>&1; then
+            gcloud scheduler jobs update http "$SCORING_SCHEDULER_JOB" \
+              --project="$GCP_PROJECT_ID" \
+              --location="$GCP_REGION" \
+              --schedule="0 1 * * *" \
+              --time-zone="America/Sao_Paulo" \
+              --uri="$SCHEDULER_URI" \
+              --http-method=POST \
+              --update-headers="Content-Type=application/json" \
+              --message-body="{}" \
+              --oauth-service-account-email="$RUNTIME_SERVICE_ACCOUNT" \
+              --oauth-token-scope="https://www.googleapis.com/auth/cloud-platform"
+          else
+            gcloud scheduler jobs create http "$SCORING_SCHEDULER_JOB" \
+              --project="$GCP_PROJECT_ID" \
+              --location="$GCP_REGION" \
+              --schedule="0 1 * * *" \
+              --time-zone="America/Sao_Paulo" \
+              --uri="$SCHEDULER_URI" \
+              --http-method=POST \
+              --headers="Content-Type=application/json" \
+              --message-body="{}" \
+              --oauth-service-account-email="$RUNTIME_SERVICE_ACCOUNT" \
+              --oauth-token-scope="https://www.googleapis.com/auth/cloud-platform"
+          fi

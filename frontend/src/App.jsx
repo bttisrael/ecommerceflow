@@ -30,6 +30,7 @@ function App() {
   const [status, setStatus] = useState(null);
 
   const [predictionSummary, setPredictionSummary] = useState(null);
+  const [predictionPerformance, setPredictionPerformance] = useState(null);
   const [latestPredictions, setLatestPredictions] = useState([]);
 
   const [loading, setLoading] = useState(false);
@@ -55,12 +56,14 @@ function App() {
         metricsData,
         statusData,
         predictionSummaryData,
+        predictionPerformanceData,
         latestPredictionsData,
       ] = await Promise.all([
         fetchJson(`${API_URL}/orders?limit=100&offset=0`),
         fetchJson(`${API_URL}/metrics`),
         fetchJson(`${API_URL}/simulation/status`),
         fetchJson(`${API_URL}/predictions/summary`),
+        fetchJson(`${API_URL}/predictions/performance?limit=14`),
         fetchJson(`${API_URL}/predictions/latest?limit=100`),
       ]);
 
@@ -68,6 +71,7 @@ function App() {
       setMetrics(metricsData);
       setStatus(statusData);
       setPredictionSummary(predictionSummaryData);
+      setPredictionPerformance(predictionPerformanceData);
       setLatestPredictions(latestPredictionsData.predictions || []);
     } catch (err) {
       console.error(err);
@@ -115,11 +119,30 @@ function App() {
 
   const fmtPct = (v) => `${(Number(v || 0) * 100).toFixed(1)}%`;
 
+  const fmtPctMaybe = (v) => (v === null || v === undefined ? 'not available' : fmtPct(v));
+
+  const fmtDelta = (v) => {
+    if (v === null || v === undefined) return 'no baseline';
+    const sign = Number(v) > 0 ? '+' : '';
+    return `${sign}${(Number(v) * 100).toFixed(1)} pp`;
+  };
+
+  const deltaClass = (v) => {
+    if (v === null || v === undefined) return 'metric-delta neutral';
+    if (Number(v) < 0) return 'metric-delta down';
+    if (Number(v) > 0) return 'metric-delta up';
+    return 'metric-delta neutral';
+  };
+
   const riskClass = (riskBand) => {
     if (riskBand === 'high') return 'risk high';
     if (riskBand === 'medium') return 'risk medium';
     return 'risk low';
   };
+
+  const latestPerformance = predictionPerformance?.latest;
+  const performanceHistory = predictionPerformance?.history || [];
+  const performanceAlert = latestPerformance?.accuracy_drop_alert || latestPerformance?.f1_drop_alert;
 
   return (
     <div className="page">
@@ -196,6 +219,18 @@ function App() {
           icon={<Activity />}
           label="Vertex High Risk"
           value={Number(predictionSummary?.high_risk_orders || 0).toLocaleString('pt-BR')}
+        />
+
+        <MetricCard
+          icon={<Activity />}
+          label="Latest Accuracy"
+          value={fmtPctMaybe(latestPerformance?.accuracy)}
+        />
+
+        <MetricCard
+          icon={<AlertTriangle />}
+          label="Accuracy Change"
+          value={fmtDelta(latestPerformance?.accuracy_delta)}
         />
       </section>
 
@@ -292,6 +327,90 @@ function App() {
                 : 'not available'}
             </strong>
           </div>
+        </div>
+      </section>
+
+      <section className="grid-two">
+        <div className={performanceAlert ? 'panel panel-alert' : 'panel'}>
+          <h2>Prediction Performance</h2>
+
+          <div className="carrier-row">
+            <span>Accuracy</span>
+            <strong>
+              {fmtPctMaybe(latestPerformance?.accuracy)}{' '}
+              <span className={deltaClass(latestPerformance?.accuracy_delta)}>
+                {fmtDelta(latestPerformance?.accuracy_delta)}
+              </span>
+            </strong>
+          </div>
+
+          <div className="carrier-row">
+            <span>F1</span>
+            <strong>
+              {fmtPctMaybe(latestPerformance?.f1)}{' '}
+              <span className={deltaClass(latestPerformance?.f1_delta)}>
+                {fmtDelta(latestPerformance?.f1_delta)}
+              </span>
+            </strong>
+          </div>
+
+          <div className="carrier-row">
+            <span>Precision</span>
+            <strong>
+              {fmtPctMaybe(latestPerformance?.precision)}{' '}
+              <span className={deltaClass(latestPerformance?.precision_delta)}>
+                {fmtDelta(latestPerformance?.precision_delta)}
+              </span>
+            </strong>
+          </div>
+
+          <div className="carrier-row">
+            <span>Recall</span>
+            <strong>
+              {fmtPctMaybe(latestPerformance?.recall)}{' '}
+              <span className={deltaClass(latestPerformance?.recall_delta)}>
+                {fmtDelta(latestPerformance?.recall_delta)}
+              </span>
+            </strong>
+          </div>
+
+          <div className="carrier-row">
+            <span>Evaluated rows</span>
+            <strong>
+              {Number(latestPerformance?.evaluated_rows || 0).toLocaleString('pt-BR')}
+            </strong>
+          </div>
+
+          <div className="carrier-row">
+            <span>Baseline</span>
+            <strong>
+              {latestPerformance?.baseline_run_timestamp
+                ? new Date(latestPerformance.baseline_run_timestamp).toLocaleString()
+                : 'not available'}
+            </strong>
+          </div>
+        </div>
+
+        <div className="panel">
+          <h2>Performance History</h2>
+
+          {performanceHistory.slice(0, 6).map((run) => (
+            <div className="history-row" key={run.run_id}>
+              <span>
+                {run.run_timestamp ? new Date(run.run_timestamp).toLocaleDateString() : 'not available'}
+              </span>
+
+              <strong>{fmtPct(run.accuracy)}</strong>
+
+              <span className={deltaClass(run.accuracy_delta)}>
+                {fmtDelta(run.accuracy_delta)}
+              </span>
+            </div>
+          ))}
+
+          {performanceHistory.length === 0 && (
+            <div className="empty-state">No performance runs yet</div>
+          )}
         </div>
       </section>
 

@@ -1,6 +1,7 @@
 import json
 import os
 import tempfile
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -9,6 +10,14 @@ import numpy as np
 import pandas as pd
 from google.cloud import bigquery
 from google.cloud import storage
+from sklearn.metrics import (
+    accuracy_score,
+    average_precision_score,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
 
 
 PROJECT_ID = os.getenv("PROJECT_ID", "otimizador-cargas")
@@ -21,6 +30,10 @@ ALLOW_VERTEX_ENDPOINT = os.getenv("ALLOW_VERTEX_ENDPOINT", "false").strip().lowe
 
 FEATURE_TABLE = os.getenv("FEATURE_TABLE", "otimizador-cargas.commerce_gold.delay_risk_features")
 PREDICTIONS_TABLE = os.getenv("PREDICTIONS_TABLE", "otimizador-cargas.commerce_gold.delay_risk_predictions")
+PREDICTION_PERFORMANCE_TABLE = os.getenv(
+    "PREDICTION_PERFORMANCE_TABLE",
+    "otimizador-cargas.commerce_gold.delay_risk_prediction_performance",
+)
 RAW_ORDERS_TABLE = os.getenv("RAW_ORDERS_TABLE", "otimizador-cargas.commerce_raw.orders")
 SILVER_ORDERS_TABLE = os.getenv("SILVER_ORDERS_TABLE", "otimizador-cargas.commerce_silver.orders_cleaned")
 
@@ -43,6 +56,9 @@ FEATURE_REFRESH_MAX_BYTES_BILLED = int(os.getenv("FEATURE_REFRESH_MAX_BYTES_BILL
 REFRESH_FEATURES_BEFORE_SCORING = os.getenv("REFRESH_FEATURES_BEFORE_SCORING", "false").strip().lower() in {"1", "true", "yes", "on"}
 SCORING_LOOKBACK_DAYS = int(os.getenv("SCORING_LOOKBACK_DAYS", "7"))
 PREDICTIONS_INSERT_CHUNK_SIZE = int(os.getenv("PREDICTIONS_INSERT_CHUNK_SIZE", "500"))
+PERFORMANCE_MONITORING_ENABLED = os.getenv("PERFORMANCE_MONITORING_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+ACCURACY_DROP_ALERT_THRESHOLD = float(os.getenv("ACCURACY_DROP_ALERT_THRESHOLD", "0.05"))
+F1_DROP_ALERT_THRESHOLD = float(os.getenv("F1_DROP_ALERT_THRESHOLD", "0.05"))
 
 LOCAL_MODEL_THRESHOLD = float(os.getenv("LOCAL_MODEL_THRESHOLD", "0.5"))
 HIGH_RISK_THRESHOLD = float(os.getenv("HIGH_RISK_THRESHOLD", "0.7"))
@@ -402,7 +418,7 @@ def predict(instances: list[dict]) -> list[dict]:
     raise RuntimeError(f"Unsupported SCORING_MODE={SCORING_MODE!r}. Use local, vertex, or off.")
 
 
-def insert_predictions(order_ids: list[str], predictions: list[dict]) -> None:
+def insert_predictions(order_ids: list[str], predictions: list[dict]) -> str:
     bq = bigquery.Client(project=PROJECT_ID)
     now = datetime.now(timezone.utc).isoformat()
 
@@ -427,6 +443,312 @@ def insert_predictions(order_ids: list[str], predictions: list[dict]) -> None:
         raise RuntimeError(f"BigQuery insert errors: {errors}")
 
     print(f"Inserted {len(rows)} predictions into {PREDICTIONS_TABLE}")
+    return now
+
+
+def _nullable_float(value) -> float | None:
+    if value is None:
+        return None
+    value = float(value)
+    if np.isnan(value) or np.isinf(value):
+        return None
+    return value
+
+
+def _safe_metric(metric_fn, y_true, values) -> float | None:
+    try:
+        return _nullable_float(metric_fn(y_true, values))
+    except Exception as exc:
+        print(f"Metric warning for {metric_fn.__name__}: {exc}")
+        return None
+
+
+def calculate_prediction_performance(
+    y_true,
+    y_pred,
+    y_prob,
+    risk_bands: list[str] | None = None,
+) -> dict:
+    y_true = np.asarray(y_true, dtype=int)
+    y_pred = np.asarray(y_pred, dtype=int)
+    y_prob = np.asarray(y_prob, dtype=float)
+    risk_bands = risk_bands or []
+
+    tp = int(np.sum((y_true == 1) & (y_pred == 1)))
+    fp = int(np.sum((y_true == 0) & (y_pred == 1)))
+    fn = int(np.sum((y_true == 1) & (y_pred == 0)))
+    tn = int(np.sum((y_true == 0) & (y_pred == 0)))
+
+    metrics = {
+        "evaluated_rows": int(len(y_true)),
+        "positive_labels": int(np.sum(y_true == 1)),
+        "positive_predictions": int(np.sum(y_pred == 1)),
+        "accuracy": _nullable_float(accuracy_score(y_true, y_pred)),
+        "precision": _nullable_float(precision_score(y_true, y_pred, zero_division=0)),
+        "recall": _nullable_float(recall_score(y_true, y_pred, zero_division=0)),
+        "f1": _nullable_float(f1_score(y_true, y_pred, zero_division=0)),
+        "roc_auc": None,
+        "average_precision": None,
+        "true_positives": tp,
+        "false_positives": fp,
+        "false_negatives": fn,
+        "true_negatives": tn,
+        "avg_delay_probability": _nullable_float(np.mean(y_prob)) if len(y_prob) else None,
+        "high_risk_orders": int(sum(1 for band in risk_bands if band == "high")),
+        "medium_risk_orders": int(sum(1 for band in risk_bands if band == "medium")),
+        "low_risk_orders": int(sum(1 for band in risk_bands if band == "low")),
+    }
+
+    if len(np.unique(y_true)) > 1:
+        metrics["roc_auc"] = _safe_metric(roc_auc_score, y_true, y_prob)
+        metrics["average_precision"] = _safe_metric(average_precision_score, y_true, y_prob)
+
+    return metrics
+
+
+def calculate_batch_performance(scored_df: pd.DataFrame, predictions: list[dict]) -> dict | None:
+    if "delay_risk_label" not in scored_df.columns:
+        print("Performance monitoring skipped: delay_risk_label is missing from the feature table.")
+        return None
+    if scored_df.empty or not predictions:
+        print("Performance monitoring skipped: no rows were scored.")
+        return None
+
+    y_true = scored_df["delay_risk_label"].fillna(0).astype(int).to_numpy()
+    y_pred = [int(pred.get("delay_prediction", 0)) for pred in predictions]
+    y_prob = [float(pred.get("delay_probability", 0.0)) for pred in predictions]
+    risk_bands = [str(pred.get("risk_band", "unknown")) for pred in predictions]
+
+    return calculate_prediction_performance(y_true, y_pred, y_prob, risk_bands)
+
+
+def ensure_performance_table(bq: bigquery.Client) -> None:
+    ddl = f"""
+    CREATE TABLE IF NOT EXISTS `{PREDICTION_PERFORMANCE_TABLE}` (
+      run_id STRING,
+      run_timestamp TIMESTAMP,
+      run_date DATE,
+      model_version STRING,
+      scoring_mode STRING,
+      endpoint_id STRING,
+      evaluated_rows INT64,
+      positive_labels INT64,
+      positive_predictions INT64,
+      accuracy FLOAT64,
+      precision FLOAT64,
+      recall FLOAT64,
+      f1 FLOAT64,
+      roc_auc FLOAT64,
+      average_precision FLOAT64,
+      true_positives INT64,
+      false_positives INT64,
+      false_negatives INT64,
+      true_negatives INT64,
+      avg_delay_probability FLOAT64,
+      high_risk_orders INT64,
+      medium_risk_orders INT64,
+      low_risk_orders INT64,
+      baseline_run_timestamp TIMESTAMP,
+      baseline_accuracy FLOAT64,
+      baseline_precision FLOAT64,
+      baseline_recall FLOAT64,
+      baseline_f1 FLOAT64,
+      baseline_roc_auc FLOAT64,
+      baseline_average_precision FLOAT64,
+      accuracy_delta FLOAT64,
+      precision_delta FLOAT64,
+      recall_delta FLOAT64,
+      f1_delta FLOAT64,
+      roc_auc_delta FLOAT64,
+      average_precision_delta FLOAT64,
+      accuracy_drop_alert BOOL,
+      f1_drop_alert BOOL,
+      comparison_source STRING,
+      created_at TIMESTAMP
+    )
+    PARTITION BY run_date
+    CLUSTER BY model_version, scoring_mode
+    """
+    bq.query(ddl, job_config=bq_job_config()).result()
+
+
+def fetch_latest_recorded_performance(bq: bigquery.Client) -> dict | None:
+    query = f"""
+    SELECT
+      run_timestamp,
+      accuracy,
+      precision,
+      recall,
+      f1,
+      roc_auc,
+      average_precision
+    FROM `{PREDICTION_PERFORMANCE_TABLE}`
+    ORDER BY run_timestamp DESC
+    LIMIT 1
+    """
+    rows = list(bq.query(query, job_config=bq_job_config()).result())
+    if not rows:
+        return None
+
+    row = rows[0]
+    return {
+        "run_timestamp": str(row["run_timestamp"]) if row["run_timestamp"] else None,
+        "accuracy": _nullable_float(row["accuracy"]),
+        "precision": _nullable_float(row["precision"]),
+        "recall": _nullable_float(row["recall"]),
+        "f1": _nullable_float(row["f1"]),
+        "roc_auc": _nullable_float(row["roc_auc"]),
+        "average_precision": _nullable_float(row["average_precision"]),
+        "comparison_source": "performance_table",
+    }
+
+
+def fetch_latest_prediction_batch_performance(bq: bigquery.Client, before_timestamp: str) -> dict | None:
+    safe_timestamp = before_timestamp.replace('"', "")
+    query = f"""
+    WITH latest_batch AS (
+      SELECT prediction_timestamp
+      FROM `{PREDICTIONS_TABLE}`
+      WHERE prediction_timestamp < TIMESTAMP("{safe_timestamp}")
+      GROUP BY prediction_timestamp
+      ORDER BY prediction_timestamp DESC
+      LIMIT 1
+    )
+    SELECT
+      p.prediction_timestamp,
+      p.delay_prediction,
+      p.delay_probability,
+      p.risk_band,
+      f.delay_risk_label
+    FROM `{PREDICTIONS_TABLE}` p
+    JOIN latest_batch b
+      ON p.prediction_timestamp = b.prediction_timestamp
+    JOIN `{FEATURE_TABLE}` f
+      ON p.order_id = f.order_id
+    WHERE f.delay_risk_label IS NOT NULL
+    """
+    rows = list(bq.query(query, job_config=bq_job_config()).result())
+    if not rows:
+        return None
+
+    metrics = calculate_prediction_performance(
+        [int(row["delay_risk_label"] or 0) for row in rows],
+        [int(row["delay_prediction"] or 0) for row in rows],
+        [float(row["delay_probability"] or 0.0) for row in rows],
+        [str(row["risk_band"] or "unknown") for row in rows],
+    )
+    metrics["run_timestamp"] = str(rows[0]["prediction_timestamp"]) if rows[0]["prediction_timestamp"] else None
+    metrics["comparison_source"] = "latest_prediction_batch"
+    return metrics
+
+
+def _delta(current: float | None, baseline: float | None) -> float | None:
+    if current is None or baseline is None:
+        return None
+    return _nullable_float(current - baseline)
+
+
+def build_performance_row(
+    current: dict,
+    baseline: dict | None,
+    run_timestamp: str,
+) -> dict:
+    accuracy_delta = _delta(current.get("accuracy"), baseline.get("accuracy") if baseline else None)
+    precision_delta = _delta(current.get("precision"), baseline.get("precision") if baseline else None)
+    recall_delta = _delta(current.get("recall"), baseline.get("recall") if baseline else None)
+    f1_delta = _delta(current.get("f1"), baseline.get("f1") if baseline else None)
+    roc_auc_delta = _delta(current.get("roc_auc"), baseline.get("roc_auc") if baseline else None)
+    average_precision_delta = _delta(
+        current.get("average_precision"),
+        baseline.get("average_precision") if baseline else None,
+    )
+
+    endpoint_id = "local" if SCORING_MODE == "local" else ENDPOINT_ID
+
+    row = {
+        "run_id": str(uuid.uuid4()),
+        "run_timestamp": run_timestamp,
+        "run_date": run_timestamp[:10],
+        "model_version": MODEL_VERSION,
+        "scoring_mode": SCORING_MODE,
+        "endpoint_id": endpoint_id,
+        "evaluated_rows": current["evaluated_rows"],
+        "positive_labels": current["positive_labels"],
+        "positive_predictions": current["positive_predictions"],
+        "accuracy": current["accuracy"],
+        "precision": current["precision"],
+        "recall": current["recall"],
+        "f1": current["f1"],
+        "roc_auc": current["roc_auc"],
+        "average_precision": current["average_precision"],
+        "true_positives": current["true_positives"],
+        "false_positives": current["false_positives"],
+        "false_negatives": current["false_negatives"],
+        "true_negatives": current["true_negatives"],
+        "avg_delay_probability": current["avg_delay_probability"],
+        "high_risk_orders": current["high_risk_orders"],
+        "medium_risk_orders": current["medium_risk_orders"],
+        "low_risk_orders": current["low_risk_orders"],
+        "baseline_run_timestamp": baseline.get("run_timestamp") if baseline else None,
+        "baseline_accuracy": baseline.get("accuracy") if baseline else None,
+        "baseline_precision": baseline.get("precision") if baseline else None,
+        "baseline_recall": baseline.get("recall") if baseline else None,
+        "baseline_f1": baseline.get("f1") if baseline else None,
+        "baseline_roc_auc": baseline.get("roc_auc") if baseline else None,
+        "baseline_average_precision": baseline.get("average_precision") if baseline else None,
+        "accuracy_delta": accuracy_delta,
+        "precision_delta": precision_delta,
+        "recall_delta": recall_delta,
+        "f1_delta": f1_delta,
+        "roc_auc_delta": roc_auc_delta,
+        "average_precision_delta": average_precision_delta,
+        "accuracy_drop_alert": bool(
+            accuracy_delta is not None and accuracy_delta <= -abs(ACCURACY_DROP_ALERT_THRESHOLD)
+        ),
+        "f1_drop_alert": bool(f1_delta is not None and f1_delta <= -abs(F1_DROP_ALERT_THRESHOLD)),
+        "comparison_source": baseline.get("comparison_source") if baseline else None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    return row
+
+
+def record_prediction_performance(
+    scored_df: pd.DataFrame,
+    predictions: list[dict],
+    run_timestamp: str,
+) -> None:
+    if not PERFORMANCE_MONITORING_ENABLED:
+        print("Performance monitoring skipped by PERFORMANCE_MONITORING_ENABLED=false.")
+        return
+
+    current = calculate_batch_performance(scored_df, predictions)
+    if current is None:
+        return
+
+    bq = bigquery.Client(project=PROJECT_ID)
+    ensure_performance_table(bq)
+
+    baseline = fetch_latest_recorded_performance(bq)
+    if baseline is None:
+        baseline = fetch_latest_prediction_batch_performance(bq, before_timestamp=run_timestamp)
+
+    row = build_performance_row(current, baseline, run_timestamp)
+    errors = bq.insert_rows_json(PREDICTION_PERFORMANCE_TABLE, [row])
+    if errors:
+        raise RuntimeError(f"BigQuery performance insert errors: {errors}")
+
+    comparison = "no prior baseline"
+    if baseline:
+        comparison = f"{baseline.get('comparison_source')} at {baseline.get('run_timestamp')}"
+
+    print(
+        "PERFORMANCE_SUCCESS "
+        f"accuracy={row['accuracy']:.4f} "
+        f"f1={row['f1']:.4f} "
+        f"baseline={comparison} "
+        f"accuracy_delta={row['accuracy_delta']}"
+    )
 
 
 def main():
@@ -479,7 +801,8 @@ def main():
     predictions = predict(instances)
     print(f"Received {len(predictions)} predictions using {SCORING_MODE} mode")
 
-    insert_predictions(order_ids, predictions)
+    run_timestamp = insert_predictions(order_ids, predictions)
+    record_prediction_performance(df, predictions, run_timestamp)
     print("SCORING_SUCCESS")
 
 

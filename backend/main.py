@@ -242,6 +242,10 @@ except Exception:
 
 BIGQUERY_PROJECT = os.getenv("BIGQUERY_PROJECT", "otimizador-cargas")
 PREDICTIONS_TABLE = os.getenv("PREDICTIONS_TABLE", "otimizador-cargas.commerce_gold.delay_risk_predictions")
+PREDICTION_PERFORMANCE_TABLE = os.getenv(
+    "PREDICTION_PERFORMANCE_TABLE",
+    "otimizador-cargas.commerce_gold.delay_risk_prediction_performance",
+)
 BIGQUERY_PREDICTIONS_ENABLED = _env_bool("BIGQUERY_PREDICTIONS_ENABLED", True)
 PREDICTIONS_CACHE_SECONDS = _env_int("PREDICTIONS_CACHE_SECONDS", 900, minimum=0)
 BIGQUERY_MAX_BYTES_BILLED = _env_int("BIGQUERY_MAX_BYTES_BILLED", 100_000_000, minimum=0)
@@ -284,6 +288,13 @@ def _empty_predictions_summary() -> Dict[str, Any]:
         "low_risk_orders": 0,
         "last_prediction_timestamp": None,
         "risk_distribution": [],
+    }
+
+
+def _empty_prediction_performance() -> Dict[str, Any]:
+    return {
+        "latest": None,
+        "history": [],
     }
 
 
@@ -379,3 +390,131 @@ def _load_latest_predictions(limit: int) -> Dict[str, Any]:
         })
 
     return {"predictions": rows}
+
+
+@app.get("/predictions/performance")
+def prediction_performance(limit: int = Query(14, ge=1, le=90)):
+    if not BIGQUERY_PREDICTIONS_ENABLED:
+        return _empty_prediction_performance()
+
+    return _cached_prediction_response(
+        f"performance:{limit}",
+        lambda: _load_prediction_performance(limit),
+    )
+
+
+def _load_prediction_performance(limit: int) -> Dict[str, Any]:
+    client = _bq_client()
+
+    query = f"""
+    SELECT
+      run_id,
+      run_timestamp,
+      run_date,
+      model_version,
+      scoring_mode,
+      endpoint_id,
+      evaluated_rows,
+      positive_labels,
+      positive_predictions,
+      accuracy,
+      precision,
+      recall,
+      f1,
+      roc_auc,
+      average_precision,
+      true_positives,
+      false_positives,
+      false_negatives,
+      true_negatives,
+      avg_delay_probability,
+      high_risk_orders,
+      medium_risk_orders,
+      low_risk_orders,
+      baseline_run_timestamp,
+      baseline_accuracy,
+      baseline_precision,
+      baseline_recall,
+      baseline_f1,
+      baseline_roc_auc,
+      baseline_average_precision,
+      accuracy_delta,
+      precision_delta,
+      recall_delta,
+      f1_delta,
+      roc_auc_delta,
+      average_precision_delta,
+      accuracy_drop_alert,
+      f1_drop_alert,
+      comparison_source,
+      created_at
+    FROM `{PREDICTION_PERFORMANCE_TABLE}`
+    ORDER BY run_timestamp DESC
+    LIMIT {limit}
+    """
+
+    try:
+        result = _run_bq_query(client, query)
+    except Exception as exc:
+        if "Not found: Table" in str(exc) or "Not found: Dataset" in str(exc):
+            return _empty_prediction_performance()
+        raise
+
+    rows = [_prediction_performance_row(r) for r in result]
+    return {
+        "latest": rows[0] if rows else None,
+        "history": rows,
+    }
+
+
+def _prediction_performance_row(row) -> Dict[str, Any]:
+    return {
+        "run_id": row["run_id"],
+        "run_timestamp": str(row["run_timestamp"]) if row["run_timestamp"] else None,
+        "run_date": str(row["run_date"]) if row["run_date"] else None,
+        "model_version": row["model_version"],
+        "scoring_mode": row["scoring_mode"],
+        "endpoint_id": row["endpoint_id"],
+        "evaluated_rows": int(row["evaluated_rows"] or 0),
+        "positive_labels": int(row["positive_labels"] or 0),
+        "positive_predictions": int(row["positive_predictions"] or 0),
+        "accuracy": float(row["accuracy"] or 0),
+        "precision": float(row["precision"] or 0),
+        "recall": float(row["recall"] or 0),
+        "f1": float(row["f1"] or 0),
+        "roc_auc": float(row["roc_auc"]) if row["roc_auc"] is not None else None,
+        "average_precision": float(row["average_precision"]) if row["average_precision"] is not None else None,
+        "true_positives": int(row["true_positives"] or 0),
+        "false_positives": int(row["false_positives"] or 0),
+        "false_negatives": int(row["false_negatives"] or 0),
+        "true_negatives": int(row["true_negatives"] or 0),
+        "avg_delay_probability": float(row["avg_delay_probability"] or 0),
+        "high_risk_orders": int(row["high_risk_orders"] or 0),
+        "medium_risk_orders": int(row["medium_risk_orders"] or 0),
+        "low_risk_orders": int(row["low_risk_orders"] or 0),
+        "baseline_run_timestamp": str(row["baseline_run_timestamp"]) if row["baseline_run_timestamp"] else None,
+        "baseline_accuracy": float(row["baseline_accuracy"]) if row["baseline_accuracy"] is not None else None,
+        "baseline_precision": float(row["baseline_precision"]) if row["baseline_precision"] is not None else None,
+        "baseline_recall": float(row["baseline_recall"]) if row["baseline_recall"] is not None else None,
+        "baseline_f1": float(row["baseline_f1"]) if row["baseline_f1"] is not None else None,
+        "baseline_roc_auc": float(row["baseline_roc_auc"]) if row["baseline_roc_auc"] is not None else None,
+        "baseline_average_precision": (
+            float(row["baseline_average_precision"])
+            if row["baseline_average_precision"] is not None
+            else None
+        ),
+        "accuracy_delta": float(row["accuracy_delta"]) if row["accuracy_delta"] is not None else None,
+        "precision_delta": float(row["precision_delta"]) if row["precision_delta"] is not None else None,
+        "recall_delta": float(row["recall_delta"]) if row["recall_delta"] is not None else None,
+        "f1_delta": float(row["f1_delta"]) if row["f1_delta"] is not None else None,
+        "roc_auc_delta": float(row["roc_auc_delta"]) if row["roc_auc_delta"] is not None else None,
+        "average_precision_delta": (
+            float(row["average_precision_delta"])
+            if row["average_precision_delta"] is not None
+            else None
+        ),
+        "accuracy_drop_alert": bool(row["accuracy_drop_alert"]),
+        "f1_drop_alert": bool(row["f1_drop_alert"]),
+        "comparison_source": row["comparison_source"],
+        "created_at": str(row["created_at"]) if row["created_at"] else None,
+    }

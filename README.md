@@ -139,11 +139,13 @@ REFRESH_FEATURES_BEFORE_SCORING=true
 BATCH_SIZE=50
 DAILY_SCORING_LIMIT=300
 SCORING_LOOKBACK_DAYS=7
+PERFORMANCE_MONITORING_ENABLED=true
+PREDICTION_PERFORMANCE_TABLE=your-gcp-project.commerce_gold.delay_risk_prediction_performance
 ```
 
 `score_recent_orders_vertex.py` defaults to `SCORING_MODE=local`, which loads `vertex_custom_model/model.joblib` or `MODEL_GCS_URI` and does not call a persistent Vertex AI endpoint.
 
-The deployed low-cost schedule runs `ecommerceflow-vertex-scoring` once per day at 01:00 America/Sao_Paulo. It refreshes `commerce_silver.orders_cleaned` and `commerce_gold.delay_risk_features`, then scores a capped sample of recent unscored orders into `commerce_gold.delay_risk_predictions`. This demonstrates the production inference flow while avoiding a continuously running online endpoint.
+The deployed low-cost schedule runs `ecommerceflow-vertex-scoring` once per day at 01:00 America/Sao_Paulo through the `ecommerceflow-score-orders` Cloud Scheduler job. It refreshes `commerce_silver.orders_cleaned` and `commerce_gold.delay_risk_features`, then scores a capped sample of recent unscored orders into `commerce_gold.delay_risk_predictions`. Each successful scoring run also writes accuracy, precision, recall, F1, ROC AUC, average precision and metric deltas into `commerce_gold.delay_risk_prediction_performance`. If the performance table has no prior rows, the first run compares itself to the latest previous prediction batch, such as the 2026-06-23 batch.
 
 ## CI/CD
 
@@ -156,7 +158,7 @@ This repo includes GitHub Actions workflows:
 - `.github/workflows/cd.yml`: runs on pushes to `main` and can also be started manually.
   - Deploys the frontend to Vercel.
   - Builds and deploys the FastAPI backend to Cloud Run.
-  - Builds and updates the daily scoring Cloud Run Job.
+  - Builds and updates the daily scoring Cloud Run Job and Cloud Scheduler trigger.
 
 Required GitHub repository secrets:
 
@@ -172,12 +174,13 @@ GCP_SERVICE_ACCOUNT
 
 ```text
 roles/run.admin
+roles/cloudscheduler.admin
 roles/cloudbuild.builds.editor
 roles/artifactregistry.writer
 roles/iam.serviceAccountUser on commerceflow-runner@otimizador-cargas.iam.gserviceaccount.com
 ```
 
-The deployed runtime service account remains `commerceflow-runner@otimizador-cargas.iam.gserviceaccount.com`.
+The deployed runtime service account remains `commerceflow-runner@otimizador-cargas.iam.gserviceaccount.com`. The CD workflow grants this account `roles/run.invoker` on the scoring job so Cloud Scheduler can execute the daily run.
 
 If Vercel Git integration is also enabled, keep only one production deploy path to avoid duplicate frontend deployments.
 
